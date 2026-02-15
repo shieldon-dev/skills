@@ -1,0 +1,12 @@
+{
+  "name": "shieldon-skills",
+  "description": "Shielding AI commerce with skills addressing agents security gaps",
+  "homepage": "https://shieldon.dev",
+  "skills": [
+    {
+      "name": "skills-audit",
+      "path": "skills/skills-audit",
+      "description": "Security scanner — audits skill files for credential theft, exfiltration, dangerous commands, and obfuscation"
+    }
+  ]
+}
