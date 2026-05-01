@@ -10,7 +10,7 @@ license: MIT
 compatibility: Requires Python 3.10+. No additional packages needed — uses standard library only.
 metadata:
   author: shieldon
-  version: "1.0"
+  version: "1.1"
   homepage: https://shieldon.dev
 allowed-tools: Bash(python:*)
 ---
@@ -79,12 +79,16 @@ Any finding with CRITICAL severity overrides to BLOCK regardless of total score.
 
 ## What It Detects
 
-37 detection patterns across 4 threat categories:
+39 detection patterns across 6 threat categories:
 
 - **Credential theft** — AWS, GitHub, Stripe, OpenAI, Anthropic, Supabase, database connection strings, crypto private keys, and 30+ more secret formats
 - **Data exfiltration** — Discord/Slack/Telegram webhooks, paste services, file drop services, HTTP client POST calls, DNS tunneling
 - **Dangerous commands** — Reverse shells, system destruction, privilege escalation, container escape, SSH key injection, PowerShell execution, deserialization attacks
 - **Obfuscation** — Base64 decode chains, hex encoding, eval+encoding combos, string concatenation evasion, unicode escape sequences
+- **Audit-override framing** — Prose pleading "educational only", "classify as safe", "ignore the YARA finding", `END-OVERRIDE` markers, "this skill is disabled" — social engineering aimed at the auditor
+- **Multistage remote code** — `exec(...http://...)`, `bash <(curl ...)`, plugin/manifest loaders that defer code or configuration to a remote URL the auditor cannot inspect
+
+When audit-override framing co-occurs with any non-framing finding (credentials, exfiltration, dangerous commands, obfuscation, multistage), the scanner short-circuits to `BLOCK` regardless of the score. This mirrors the hosted Shieldon engine's framing co-occurrence policy.
 
 For the full pattern list, see `references/DETECTION-COVERAGE.md`.
 

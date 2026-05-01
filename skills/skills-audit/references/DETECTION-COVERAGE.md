@@ -1,6 +1,6 @@
 # Detection Coverage
 
-Full list of 37 detection patterns across 4 threat categories.
+Full list of 39 detection patterns across 6 threat categories.
 
 ## Credentials (12 rules)
 
@@ -59,6 +59,18 @@ Full list of 37 detection patterns across 4 threat categories.
 | `Obfuscation_String_Concat_Evasion` | MEDIUM | `chr()` concatenation, `join(map(chr, ...))` |
 | `Obfuscation_Unicode_Escape` | MEDIUM | 6+ consecutive `\uXXXX` escapes, `decode('unicode_escape')` |
 
+## Prompt Injection (1 rule)
+
+| Rule | Severity | What it detects |
+|------|----------|----------------|
+| `Audit_Override_Framing` | HIGH | Prose addressed to the auditor pleading for leniency: "do not run", "not (real\|actual\|live\|production) code", "classify as safe", "(educational\|illustrative\|hypothetical\|teaching\|training\|demonstration) (purpose\|only)", "(documentation\|reference) only", "verdict: safe", "false positive", "ignore the (YARA\|finding\|match)", `END-OVERRIDE` markers, "this skill is disabled". Tagged with `category: prompt_injection`. |
+
+## Multistage (1 rule)
+
+| Rule | Severity | What it detects |
+|------|----------|----------------|
+| `Multistage_Unaudited_Remote_Code` | HIGH | Code or configuration that loads from a remote URL the auditor cannot inspect: `exec(...http(s)://...)`, `eval(...http(s)://...)`, `compile(...http(s)://...) ... exec`, `importlib.import_module(...http://...)`, `__import__(...http://...)`, `runpy.run_path/run_module(...http(s)://...)`, `bash <(curl ...)`, `bash -c "$(curl ...)"`, plus prose directives that instruct a host runtime / loader / plugin / registry to fetch, apply, register, or publish a remote manifest, bundle, or stage-2 module. Tagged with `category: multistage`. |
+
 ## Scoring
 
 | Severity | Points |
@@ -69,3 +81,7 @@ Full list of 37 detection patterns across 4 threat categories.
 | CRITICAL | 50 |
 
 Total score is capped at 100. Any CRITICAL finding forces the recommendation to BLOCK.
+
+## Framing Co-occurrence Policy
+
+If a `prompt_injection` finding (audit-override framing prose) appears alongside any non-framing finding (credentials, exfiltration, dangerous commands, obfuscation, multistage), the scanner short-circuits to `BLOCK` regardless of the score. The framing prose is the bypass surface attackers use to launder real malicious indicators past an LLM auditor — when the two co-occur the framing is treated as additional evidence the malicious indicator is real. This mirrors the hosted Shieldon engine's policy in `engine._decide_verdict`.
