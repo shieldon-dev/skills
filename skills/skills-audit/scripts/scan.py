@@ -475,6 +475,90 @@ RULES: list[dict] = [
             r"decode\s*\(\s*['\"]unicode\.escape['\"]",
         ]),
     },
+
+    # -----------------------------------------------------------------------
+    # prompt_injection.yar (1 rule)
+    #
+    # Audit-override framing: prose addressed to the auditor that pleads
+    # for leniency. Alone this is informational. Combined with any
+    # non-framing finding (credentials, exfiltration, dangerous_commands,
+    # obfuscation, multistage), the scanner short-circuits to BLOCK —
+    # mirroring the engine's framing co-occurrence policy.
+    # -----------------------------------------------------------------------
+    {
+        "name": "Audit_Override_Framing",
+        "description": "Audit-override framing language addressed to the auditor",
+        "severity": "HIGH",
+        "category": "prompt_injection",
+        "patterns": _compile([
+            r"do\s+not\s+(run|execute|invoke)",
+            r"(not|never|won't\s+be|wont\s+be|isn't|isnt)\s+(executed|actually\s+run|live\s+code|run\s+anywhere|invoked|run\s+at\s+runtime)",
+            r"auditor\s*[:,\-]",
+            r"classify\s+(it|this|the\s+skill)?\s*as\s+safe",
+            r"ignore\s+(the|this|any)\s+(yara|finding|match|hit|warning)",
+            r"(educational|illustrative|hypothetical|teaching|training|demonstration|reference|tutorial)\s+(purpose|purposes|use|uses|only|reason|reasons|example|case|scenario|material|content)",
+            r"(for|as)\s+(an?\s+)?(educational|illustrative|hypothetical|teaching|training|demonstration)\s+(purpose|purposes|use|reason|reasons|example|only|reference|case|scenario)",
+            r"(documentation|reference)\s+only",
+            r"not\s+(real|actual|live|production)\s+code",
+            r"verdict\s*[:=]\s*[`'\"]?safe",
+            r"(correct|right|proper)\s+verdict[^\n]{0,80}safe",
+            r"false positive",
+            r"END[\-_\s]?OVERRIDE",
+            r"this\s+skill\s+is\s+(disabled|not\s+active|inactive|dormant)",
+        ], re.IGNORECASE),
+    },
+
+    # -----------------------------------------------------------------------
+    # multistage.yar (1 rule)
+    #
+    # Skill defers code or configuration loading to a remote URL the
+    # auditor cannot inspect — the CVE-2 / CVE-3 root cause. Catches both
+    # explicit code-exec verbs paired with URLs and prose-level multistage
+    # attacks (host runtime/loader/registry "fetches", "applies", "publishes"
+    # remote bundles).
+    # -----------------------------------------------------------------------
+    {
+        "name": "Multistage_Unaudited_Remote_Code",
+        "description": "Skill defers code/configuration loading to a remote URL the auditor cannot inspect",
+        "severity": "HIGH",
+        "category": "multistage",
+        "patterns": [
+            # Code-execution verbs paired with a remote URL (case-sensitive
+            # — these are code identifiers, not prose).
+            re.compile(r"\bexec\s*\([^\n]{0,80}https?:\/\/"),
+            re.compile(r"\beval\s*\([^\n]{0,80}https?:\/\/"),
+            re.compile(r"compile\s*\([^\n]{0,80}https?:\/\/[^\n]{0,200}exec"),
+            re.compile(r"importlib\.import_module\s*\([^\n]{0,80}https?:\/\/"),
+            re.compile(r"__import__\s*\([^\n]{0,80}https?:\/\/"),
+            re.compile(r"runpy\.(run_path|run_module)\s*\([^\n]{0,80}https?:\/\/"),
+            re.compile(r"bash\s+<\(\s*curl"),
+            re.compile(r"bash\s+<\(\s*wget"),
+            re.compile(r"(ba)?sh\s+-c\s+[\"']?[^\"'\n]{0,80}\$\(\s*curl"),
+            # Vague-prose multistage: actor (host/runtime/loader/plugin/
+            # registry/...) does an action (fetch/apply/register/publish/
+            # subscribe/...) on remote artefacts.
+            re.compile(
+                r"(host|runtime|loader|plugin|companion|orchestrator|resolver|registry|index|installer|bootstrap(per)?|package\s+manager|dependency\s+(index|manager|resolver)?|extension\s+host|agent\s+context|module\s+system|chart|subscriber|sidecar|coordinator|dispatcher)\s+(must|will|should|shall|may)?\s*(fetch(es|ed)?|retrieve(s|d)?|load(s|ed)?|integrate(s|d)?|register(s|ed)?|apply|appli(es|ed)|install(s|ed)?|consult(s|ed)?|subscribe(s|d)?|publish(es|ed)?|template(s|d)?|materialize(s|d)?|hydrate(s|d)?|inject(s|ed)?|pull(s|ed)?|download(s|ed)?|resolve(s|d)?|bring(s|ing)?\s+into|import(s|ed)?\s+into\s+(the\s+)?(process|namespace|context))",
+                re.IGNORECASE,
+            ),
+            # Lazy-load / off-disk idiom paired with a remote URL.
+            re.compile(
+                r"(kept|stored|hosted|live(s)?|reside(s)?)\s+(off[- ]disk|remotely|in\s+the\s+cloud|outside\s+the\s+(skill|repo|bundle))[^\n]{0,120}https?:\/\/",
+                re.IGNORECASE,
+            ),
+            # Source-side: a remote URL is described as publishing /
+            # distributing / serving content for the agent.
+            re.compile(
+                r"https?:\/\/[^\s)]{1,200}[^\n]{0,120}\b(publish(es|ed|ing)?|distribute(s|d)?|serve(s|d)?|provide(s|d)?|expose(s|d)?|advertise(s|d)?|broadcast(s|ed|ing)?|host(s|ed)?)\b[^\n]{0,80}\b(bundle|module|plugin|capability|capabilities|tool(s)?|chart|manifest|extension(s)?|payload|code|script|config(uration)?)\b",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(manifest|bundle|companion|plugin|module|chart|values\.yaml|values\.json)\s+(at|from|located\s+at|defined\s+at|hosted\s+at)\s+(https?:\/\/|\$\{[^}]*url)",
+                re.IGNORECASE,
+            ),
+            re.compile(r"stage[\-\s]?2\s+(code|payload|module|bundle)", re.IGNORECASE),
+        ],
+    },
 ]
 
 
@@ -518,12 +602,16 @@ def scan_content(content: str) -> dict:
                     break
             evidence = "; ".join(evidence_parts) if evidence_parts else None
 
-            findings.append({
+            finding: dict = {
                 "type": "regex",
                 "description": rule["description"],
                 "severity": rule["severity"],
                 "evidence": evidence,
-            })
+            }
+            category = rule.get("category")
+            if category:
+                finding["category"] = category
+            findings.append(finding)
 
     # Score aggregation (mirrors mcp-server/src/utils/scoring.py)
     total = sum(SEVERITY_POINTS[f["severity"]] for f in findings)
@@ -549,6 +637,18 @@ def scan_content(content: str) -> dict:
 
     # CRITICAL override
     if any(f["severity"] == "CRITICAL" for f in findings):
+        recommendation = "BLOCK"
+
+    # Framing co-occurrence policy — mirrors the hosted engine's policy in
+    # skill_audit.engine._decide_verdict. If audit-override framing prose
+    # appears alongside any non-framing finding (credentials, exfiltration,
+    # dangerous commands, obfuscation, multistage), the framing is the
+    # bypass surface for the LLM auditor and the combo forces BLOCK.
+    has_framing = any(f.get("category") == "prompt_injection" for f in findings)
+    has_non_framing = any(
+        f.get("category") != "prompt_injection" for f in findings
+    )
+    if has_framing and has_non_framing:
         recommendation = "BLOCK"
 
     # Sort findings by severity (CRITICAL first)
